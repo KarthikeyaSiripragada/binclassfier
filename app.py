@@ -1,6 +1,6 @@
 # app_finished_viewer.py — Viewer for "finished" / eval_outputs images + annotations
 # Usage: streamlit run app_finished_viewer.py
-import os, io, json
+import os, io, json, statistics
 from pathlib import Path
 from PIL import Image, ImageDraw
 import streamlit as st
@@ -44,6 +44,20 @@ def draw_boxes(img: Image.Image, boxes, confs=None):
             continue
     return img
 
+def _ann_score(ann):
+    # score = count + mean(conf) if confs exist; else count
+    boxes = ann.get("boxes") or ann.get("bboxes") or ann.get("bboxes_xyxy") or ann.get("boxes_xyxy") or []
+    confs = ann.get("confs") or ann.get("confs_conf") or ann.get("confs_float") or None
+    count = len(boxes)
+    if confs:
+        try:
+            confs_f = [float(x) for x in confs if x is not None]
+            if confs_f:
+                return count + statistics.mean(confs_f)
+        except Exception:
+            pass
+    return float(count)
+
 # ---- UI ----
 st.set_page_config(layout="wide", page_title="Finished Images Viewer")
 st.title("📦 Finished / Preprocessed Images — Viewer")
@@ -61,7 +75,6 @@ if not annotations:
 # Build index: map filename -> list of annotation entries
 index = {}
 for a in annotations:
-    # support multiple possible field names used across scripts
     fn = a.get("image") or a.get("file") or a.get("filename") or a.get("file_name")
     if not fn:
         continue
@@ -78,6 +91,7 @@ with col1:
     st.subheader("Browse")
     asin_filter = st.text_input("Filter by ASIN (optional)")
     chosen = st.selectbox("Choose image", [""] + all_images, index=0)
+    show_all = st.checkbox("Show all annotations (instead of best)", value=False)
     if st.button("Reload list"):
         st.rerun()
 
@@ -93,16 +107,24 @@ with col2:
         if asin_filter:
             ann_list = [a for a in ann_list if str(a.get("asin","")).lower() == asin_filter.lower()]
 
-        if ann_list:
-            if len(ann_list) > 1:
+        if not ann_list:
+            boxes, confs = [], None
+            st.markdown("No annotation entry for this image (displaying raw image).")
+        else:
+            # If user wants all, present dropdown; else auto-select best by score
+            if show_all:
                 sel_idx = st.selectbox(
                     "Annotation entry",
                     list(range(len(ann_list))),
-                    format_func=lambda i: f"{i} — asin:{ann_list[i].get('asin','N/A')} count:{ann_list[i].get('count', len(ann_list[i].get('boxes', [])))}"
+                    format_func=lambda i: f"{i} — asin:{ann_list[i].get('asin','N/A')} count:{len(ann_list[i].get('boxes', ann_list[i].get('bboxes', [])))}"
                 )
                 ann = ann_list[sel_idx]
             else:
-                ann = ann_list[0]
+                # pick the best-scoring annotation automatically
+                scores = [_ann_score(a) for a in ann_list]
+                best_idx = int(max(range(len(scores)), key=lambda i: scores[i]))
+                ann = ann_list[best_idx]
+                st.caption(f"Showing best annotation (score={scores[best_idx]:.3f}). Toggle 'Show all' to inspect others.")
 
             # support multiple naming conventions
             boxes = ann.get("boxes") or ann.get("bboxes") or ann.get("bboxes_xyxy") or ann.get("boxes_xyxy") or []
@@ -110,9 +132,6 @@ with col2:
             asin = ann.get("asin", "N/A")
             count = ann.get("count", len(boxes))
             st.markdown(f"**ASIN:** `{asin}` — **Count:** {count} — **Boxes:** {len(boxes)}")
-        else:
-            boxes, confs = [], None
-            st.markdown("No annotation entry for this image (displaying raw image).")
 
         # Open image and draw boxes (non-destructive)
         try:
@@ -130,4 +149,4 @@ with col2:
             st.error(f"Could not open or render image: {e}")
 
 st.caption("Viewer uses data/finished/images or data/finished/eval_outputs + annotations.json")
-st.caption("Project completed by Karthikeya Siripragada(SE22UECM018) and Karthik Raj Gupta(SE22UCAM004)")
+st.caption("Project completed by Karthikeya Siripragada (SE22UECM018) and Karthik Raj Gupta (SE22UCAM004)")
