@@ -13,12 +13,22 @@ ALT_EVAL_DIR = FINISHED_DIR / "eval_outputs"           # fallback
 ANNOT_PATH = FINISHED_DIR / "annotations.json"
 
 # ---- helpers ----
+from pathlib import Path
+
 def find_image_dir():
     if FINISHED_IMG_DIR.exists() and any(FINISHED_IMG_DIR.iterdir()):
         return FINISHED_IMG_DIR
     if ALT_EVAL_DIR.exists() and any(ALT_EVAL_DIR.iterdir()):
         return ALT_EVAL_DIR
     return None
+
+img_dir = find_image_dir()
+if img_dir is None:
+    raise RuntimeError("No image directory found. Make sure data/finished or eval_outputs contains images.")
+# safe to use img_dir.iterdir() now
+for p in img_dir.iterdir():
+    ...
+
 
 def load_annotations(p: Path):
     if not p.exists():
